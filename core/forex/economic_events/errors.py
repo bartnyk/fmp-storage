@@ -1,0 +1,13 @@
+from core.errors import BaseMessageException
+
+
+class DifferentTimezoneException(BaseMessageException): ...
+
+
+class DifferentSubjectException(BaseMessageException): ...
+
+
+class DifferentDatesException(BaseMessageException): ...
+
+
+class ScrapperNotPreparedException(BaseMessageException): ...
