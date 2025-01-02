@@ -62,21 +62,33 @@ class EconomicEventsClient(StockClient):
             logger.info(f"New events: {inserted}, Updated events: {updated}, Errors: {error}")
             wait_for = random.randint(3, 12)
             logger.info(f"Done: {crawler.percentage_done * 100:.2f}%")
+
+            if crawler.iteration_done:
+                break
+
             logger.info(f"Waiting for {wait_for} seconds before summoning fresh scrapper.")
             time.sleep(wait_for)
+
+    async def update_recent_events(self, gui: bool = False):
+        with self._scrapper_class(gui=gui, recent_only=True) as scrapper:
+            scrapper.setup()
+            events = scrapper.get_data()
+            events_list: EventList = scrapper.parse_objects(events)
+            inserted, updated, error = await self.upsert_events(events_list)
+            logger.info(f"New events: {inserted}, Updated events: {updated}, Errors: {error}")
 
     async def get_present_dates(self) -> list[datetime.date]:
         return await self._repository.get_present_dates()
 
     @staticmethod
-    def create_date_ranges(weeks_past: int = 5 * 52) -> list[tuple[datetime.date, datetime.date]]:
+    def create_date_ranges(start_date: datetime.date = None) -> list[tuple[datetime.date, datetime.date]]:
         """
         Create date ranges from past.
 
         Parameters
         ----------
-        weeks_past : int, default=5*52
-            Number of weeks to go back. Default is 5 years.
+        start_date : datetime.date
+            Start date. Default is 5 years ago.
 
         Returns
         -------
@@ -85,7 +97,10 @@ class EconomicEventsClient(StockClient):
 
         """
         today = datetime.now(tz=cfg.timezone).date()
-        start_date = today - timedelta(weeks=weeks_past)  # 5 years ago
+
+        if start_date is None:
+            start_date = today - timedelta(weeks=5 * 52)  # 5 years ago
+
         date_pairs = []
 
         while start_date < today:

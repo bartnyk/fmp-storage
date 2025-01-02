@@ -15,7 +15,7 @@ from pymongo.errors import BulkWriteError
 
 __all__ = ["DefaultStockDataClient"]
 
-from core.repository import handle_insert_error
+from core.repository.utils import handle_insert_error
 
 logger = logging.getLogger("stock_data_logger")
 
@@ -35,7 +35,8 @@ class StockDataClient(StockClient):
         return m.ForexPair.parse_list(await self._repository.get_available_tickers())
         # return [m.ForexPair.from_raw(raw_str) for raw_str in await self._repository.get_available_tickers()]
 
-    async def _update_bulk(self, tickers_list: m.ForexTickerList) -> None:
+    async def _update_bulk(self, tickers_list: m.ForexTickerList) -> None:  # TODO: insert if historical,
+        # update if latest
         """
         Update the database with a list of ForexTicker objects.
 

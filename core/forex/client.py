@@ -1,6 +1,6 @@
 from typing import Type
 
-from core.repository import MongoDBRepository
+from core.repository.mongo import MongoDBRepository
 
 
 class StockClient:

@@ -14,35 +14,43 @@ class StockDataCrawler:
     def __init__(
         self,
         scrapper_class: Type[DEFAULT_SCRAPPER_CLASS],
-        date_ranges: list[tuple[datetime.date, datetime.date]],
+        date_ranges: list[tuple[datetime.date, datetime.date]] = None,
         gui: bool = False,
         max_retries: int = 5,
     ):
         self._scrapper_class: Type[DEFAULT_SCRAPPER_CLASS] = scrapper_class
-        self._date_ranges: list[tuple[datetime.date, datetime.date]] = date_ranges
-        self._original_dates_count = len(date_ranges)
+
+        if date_ranges:
+            self._date_ranges: list[tuple[datetime.date, datetime.date]] = date_ranges
+            self._original_dates_count = len(date_ranges)
+
         self._gui = gui
         self._max_retries_on_error = max_retries
+        self._attempt = 0
 
     def crawl(self) -> list[EventList]:
         call_number = random.randint(2, 5)
+        self._attempt = 0
 
-        if len(self._date_ranges) <= call_number:
+        if len(self._date_ranges) <= 5:
             dates_to_crawl = self._date_ranges
             self._remove_dates(self._date_ranges)
         else:
             dates_to_crawl = self._cut_original_date_ranges(call_number)
 
-        attempt = 0
+        return self._safe_crawl(dates_to_crawl)
 
-        while attempt < self._max_retries_on_error:
+    def _safe_crawl(self, dates_to_crawl: list[tuple[datetime.date, datetime.date]]) -> list[EventList]:
+        while self._attempt < self._max_retries_on_error:
             try:
                 return self._start_crawling(dates_to_crawl)
             except Exception as e:
-                attempt += 1
-                logger.error(f"Error during crawling attempt {attempt}: {e}")
-                if attempt < self._max_retries_on_error:
-                    logger.info(f"Retrying in 20 seconds... (Attempt {attempt + 1} of {self._max_retries_on_error})")
+                self._attempt += 1
+                logger.error(f"Error during crawling attempt {self._attempt}: {e}")
+                if self._attempt < self._max_retries_on_error:
+                    logger.info(
+                        f"Retrying in 20 seconds... (Attempt {self._attempt + 1} of {self._max_retries_on_error})"
+                    )
                     time.sleep(20)
                 else:
                     logger.error("Max retries reached. Exiting.")

@@ -21,11 +21,12 @@ subjects_names = Country.get_subject_names()
 class EconomicEventsScrapperV1(BaseScrapper):
     __url__ = cfg.stock.events_url
 
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, recent_only: bool = False, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._date_from = self._date_to = None
         self._ready = False
         self._fresh_filters = True
+        self._recent_only = recent_only
 
     def prepare(self) -> None:
         """
@@ -36,7 +37,7 @@ class EconomicEventsScrapperV1(BaseScrapper):
         self._change_countries()
         self._ready = True
 
-    def setup(self, from_date: datetime.date, to_date: datetime.date) -> None:
+    def setup(self, from_date: datetime.date = None, to_date: datetime.date = None) -> None:
         """
         Get economic events for the given date range.
 
@@ -56,7 +57,9 @@ class EconomicEventsScrapperV1(BaseScrapper):
         if not self._ready:
             self.prepare()
 
-        self._change_date_filter(from_date, to_date)
+        if not self._recent_only:
+            self._change_date_filter(from_date, to_date)
+
         self._validate_current_filters()
 
     def get_data(self) -> list[dict]:
@@ -189,21 +192,22 @@ class EconomicEventsScrapperV1(BaseScrapper):
 
         """
         current_timezone = self.current_timezone_filter
-        current_dates = self.current_date_filter
         current_subjects = self.current_subjects_filter
-        expected_dates = (self._date_from.strftime("%Y-%m-%d"), self._date_to.strftime("%Y-%m-%d"))
+
+        if not self._recent_only:
+            current_dates = self.current_date_filter
+            expected_dates = (self._date_from.strftime("%Y-%m-%d"), self._date_to.strftime("%Y-%m-%d"))
+            if current_dates != expected_dates:
+                raise errors.DifferentDatesException(
+                    f"Current date filter is set to {current_dates}, but should be set to {expected_dates}."
+                )
 
         if current_timezone != "0":
             raise errors.DifferentTimezoneException(
                 f"Timezone is set to {current_timezone}, but should be set to: 0 (UTC)."
             )
 
-        if current_dates != expected_dates:
-            raise errors.DifferentDatesException(
-                f"Current date filter is set to {current_dates}, but should be set to {expected_dates}."
-            )
-
-        if not Counter(current_subjects) == Counter(subjects_names):
+        if Counter(current_subjects) != Counter(subjects_names):
             raise errors.DifferentSubjectException(
                 f"Current subjects filter is set to {current_subjects}, but should be set to {subjects_names}."
             )
@@ -280,3 +284,6 @@ class EconomicEventsScrapperV1(BaseScrapper):
                 element.click()
 
         countries_element.find_element(By.XPATH, "//a[@onclick='saveSelectionAndGO();']").click()
+
+
+DEFAULT_SCRAPPER_CLASS = EconomicEventsScrapperV1
