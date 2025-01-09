@@ -4,19 +4,19 @@ import time
 from datetime import datetime, timedelta
 from typing import Type
 
+from core.components.client import FMPClient
+from core.components.economic_events.crawler import EconomicEventsCrawler
+from core.components.economic_events.models import EventList
+from core.components.economic_events.scrapper import DEFAULT_SCRAPPER_CLASS
 from core.config import cfg
-from core.forex.client import StockClient
-from core.forex.economic_events.crawler import StockDataCrawler
-from core.forex.economic_events.models import EventList
-from core.forex.economic_events.scrapper import DEFAULT_SCRAPPER_CLASS
 
 logger = logging.getLogger("economic_events_logger")
 
 __all__ = ["DefaultEconomicEventsClient"]
 
 
-class EconomicEventsClient(StockClient):
-    def __init__(self, crawler: Type[StockDataCrawler], scrapper=DEFAULT_SCRAPPER_CLASS, *args, **kwargs):
+class EconomicEventsClient(FMPClient):
+    def __init__(self, crawler: Type[EconomicEventsCrawler], scrapper=DEFAULT_SCRAPPER_CLASS, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._crawler_class = crawler
         self._scrapper_class = scrapper
@@ -60,7 +60,7 @@ class EconomicEventsClient(StockClient):
                 error += e
 
             logger.info(f"New events: {inserted}, Updated events: {updated}, Errors: {error}")
-            wait_for = random.randint(3, 12)
+            wait_for = random.randint(2, 8)
             logger.info(f"Done: {crawler.percentage_done * 100:.2f}%")
 
             if crawler.iteration_done:
@@ -72,8 +72,10 @@ class EconomicEventsClient(StockClient):
     async def update_recent_events(self, gui: bool = False):
         with self._scrapper_class(gui=gui, recent_only=True) as scrapper:
             scrapper.setup()
-            events = scrapper.get_data()
-            events_list: EventList = scrapper.parse_objects(events)
+            logger.info("Getting recent economic events.")
+            data = scrapper.get_data()
+            logger.info(f"Received {len(data)} events for today and future days.")
+            events_list: EventList = scrapper.parse_objects(data)
             inserted, updated, error = await self.upsert_events(events_list)
             logger.info(f"New events: {inserted}, Updated events: {updated}, Errors: {error}")
 
@@ -81,7 +83,9 @@ class EconomicEventsClient(StockClient):
         return await self._repository.get_present_dates()
 
     @staticmethod
-    def create_date_ranges(start_date: datetime.date = None) -> list[tuple[datetime.date, datetime.date]]:
+    def create_date_ranges(
+        start_date: datetime.date = None, end_date: datetime.date = None
+    ) -> list[tuple[datetime.date, datetime.date]]:
         """
         Create date ranges from past.
 
@@ -89,6 +93,8 @@ class EconomicEventsClient(StockClient):
         ----------
         start_date : datetime.date
             Start date. Default is 5 years ago.
+        end_date : datetime.date
+            End date. Default is today.
 
         Returns
         -------
@@ -101,11 +107,13 @@ class EconomicEventsClient(StockClient):
         if start_date is None:
             start_date = today - timedelta(weeks=5 * 52)  # 5 years ago
 
+        if end_date is None:
+            end_date = today
+
         date_pairs = []
 
-        while start_date < today:
-            end_date = start_date + timedelta(days=6)
-            date_pairs.append((start_date, end_date))
+        while start_date < end_date:
+            date_pairs.append((start_date, start_date + timedelta(days=6)))
             start_date += timedelta(weeks=1)
 
         return date_pairs

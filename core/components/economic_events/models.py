@@ -2,7 +2,7 @@ from datetime import datetime
 from enum import Enum
 
 from core.models import ListBaseModel
-from pydantic import AwareDatetime, BaseModel, model_validator
+from pydantic import AwareDatetime, BaseModel, Field, conint, model_validator
 from pydantic.dataclasses import dataclass
 
 
@@ -87,6 +87,7 @@ class Event(BaseModel, validate_assignment=True, use_enum_values=True):
     previous: str
     consensus: str
     forecast: str
+    sentiment: int = Field(ge=0, le=1)  # -1: negative, 1: positive, 0: possible error
     created_at: datetime = datetime.now()  # no need for utc
     updated_at: datetime = datetime.now()  # no need for utc
 

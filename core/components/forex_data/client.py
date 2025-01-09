@@ -5,22 +5,22 @@ from functools import cached_property
 from typing import Optional, Union
 
 import yfinance as yf
+from core.components.client import FMPClient
+from core.components.forex_data import models as m
 from core.config import cfg
 from core.errors import NoDataException
-from core.forex.client import StockClient
-from core.forex.stock_data import models as m
 from core.models import Interval, Period
 from pandas import DataFrame
 from pymongo.errors import BulkWriteError
 
-__all__ = ["DefaultStockDataClient"]
+__all__ = ["DefaultForexDataClient"]
 
 from core.repository.utils import handle_insert_error
 
-logger = logging.getLogger("stock_data_logger")
+logger = logging.getLogger("forex_data_logger")
 
 
-class StockDataClient(StockClient):
+class ForexDataClient(FMPClient):
     @cached_property
     async def available_tickers(self) -> list[m.ForexPair]:
         """
@@ -83,14 +83,14 @@ class StockDataClient(StockClient):
         pass
 
 
-class YahooFinanceStockDataClient(StockDataClient):
+class YahooFinanceDataClient(ForexDataClient):
     def _download(
         self,
         tickers: list[m.ForexPair] | m.ForexPair,
-        period: Period = cfg.stock.consts.default_stock_data_period,
+        period: Period = cfg.fmp.consts.default_yahoo_period,
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
-        interval: Interval = cfg.stock.consts.default_stock_data_interval,
+        interval: Interval = cfg.fmp.consts.default_yahoo_interval,
     ) -> DataFrame:
         """
         Download historical data from Yahoo Finance.
@@ -167,6 +167,7 @@ class YahooFinanceStockDataClient(StockDataClient):
         """
         options = {"period": Period.FIVE_YEARS, "interval": Interval.ONE_DAY}
         data = self._download(ticker, **options)
+        breakpoint()
         tickers = self._parse(ticker, data)
         await self._update_bulk(tickers)
 
@@ -181,7 +182,7 @@ class YahooFinanceStockDataClient(StockDataClient):
             ForexPair object
 
         """
-        options = {"interval": Interval.FIVE_MINUTES}
+        options = {"interval": Interval.SIXTY_MINUTES, "period": Period.MAX}
         data = self._download(ticker, **options)
         tickers = self._parse(ticker, data)
         await self._update_bulk(tickers)
@@ -219,4 +220,4 @@ class YahooFinanceStockDataClient(StockDataClient):
         logger.info(f"Inserted {len(tickers)} records for {ticker}.")
 
 
-DefaultStockDataClient = YahooFinanceStockDataClient  # define default client
+DefaultForexDataClient = YahooFinanceDataClient  # define default client

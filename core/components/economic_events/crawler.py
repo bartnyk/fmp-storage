@@ -4,13 +4,13 @@ import time
 from datetime import datetime
 from typing import Type
 
-from core.forex.economic_events.models import EventList
-from core.forex.economic_events.scrapper import DEFAULT_SCRAPPER_CLASS
+from core.components.economic_events.models import EventList
+from core.components.economic_events.scrapper import DEFAULT_SCRAPPER_CLASS
 
 logger = logging.getLogger("economic_events_logger")
 
 
-class StockDataCrawler:
+class EconomicEventsCrawler:
     def __init__(
         self,
         scrapper_class: Type[DEFAULT_SCRAPPER_CLASS],
@@ -69,7 +69,7 @@ class StockDataCrawler:
                     f"Received {len(data)} events between {date_range[0].strftime('%Y-%m-%d')} and {date_range[1].strftime('%Y-%m-%d')}."
                 )
                 stored_events.append(scrapper.parse_objects(data))
-                wait_for = random.randint(2, 5)
+                wait_for = random.randint(1, 3)
                 logger.info(f"Waiting for {wait_for} seconds between changing dates.")
                 time.sleep(wait_for)
 

@@ -13,13 +13,13 @@ logger = logging.getLogger("scrapper_logger")
 
 
 class BaseScrapper:
-    __url__ = None
+    source_url: str = None
 
     def __init__(self, gui: bool = False, use_proxy: bool = True) -> None:
         self._gui = gui
 
-        if self.__url__ is None:
-            raise ScrapperUrlNotDefinedException(f"{self.__class__} has no __url__ attribute defined.")
+        if self.source_url is None:
+            raise ScrapperUrlNotDefinedException(f"{self.__class__} has no source_url attribute defined.")
 
         options = Options()
         options.add_argument("--disable-blink-features=AutomationControlled")
@@ -48,7 +48,7 @@ class BaseScrapper:
     """
             },
         )
-        self._driver.get(self.__url__)
+        self._driver.get(self.source_url)
 
     def shutdown(self) -> None:
         self._driver.quit()

@@ -1,7 +1,7 @@
 [tool.poetry]
-name = "stock-storage"
+name = "fmp-storage"
 version = "0.1.0"
-description = ""
+description = "Forex Market Predictor storage"
 authors = ["bartnyk <jakub@bartnyk.pl>"]
 readme = "README.md"
 package-mode = false
@@ -44,6 +44,9 @@ yfinance = "^0.2.50"
 isort = "^5.13.2"
 pydantic-mongo = "^2.3.0"
 selenium-wire = "^5.1.0"
+webdriver-manager = "^4.0.2"
+blinker = "1.7.0"
+setuptools = "^75.7.0"
 
 
 [build-system]

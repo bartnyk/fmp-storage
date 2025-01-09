@@ -75,7 +75,6 @@ class ForexTicker(BaseModel):
     high: float = Field(alias="High")
     low: float = Field(alias="Low")
     open: float = Field(alias="Open")
-    volume: int = Field(alias="Volume")
 
     @field_serializer("ticker")
     def ticker_serializer(self, ticker: ForexPair) -> str:
@@ -84,7 +83,7 @@ class ForexTicker(BaseModel):
     @model_validator(mode="before")
     def date_to_datetime(self) -> "ForexTicker":
         if not self.get("timestamp"):
-            self["timestamp"] = self.get("Date", None) or self.get("Datetime", None)
+            self["timestamp"] = self.pop("Date", None) or self.pop("Datetime", None)
         if isinstance(self["timestamp"], Timestamp):
             self["timestamp"] = self["timestamp"].to_pydatetime()
         self["timestamp"] = self["timestamp"].replace(tzinfo=cfg.timezone)

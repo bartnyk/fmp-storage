@@ -2,7 +2,7 @@
 Configuration module.
 
 This module contains configuration classes and settings for the application.
-It includes configurations for MongoDB, stock API, paths, proxies etc.
+It includes configurations for MongoDB, APIs, paths, proxies etc.
 """
 
 import logging.config
@@ -11,6 +11,7 @@ import random
 from datetime import UTC
 from typing import Optional
 
+from pydantic import HttpUrl
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from core.errors import NoProxyLoadedException
@@ -37,7 +38,7 @@ class MongoDBConfig(BaseSettings):
 
     host: str = "localhost"
     port: int = 27017
-    db_name: str = "stock"
+    db_name: str
     user: Optional[str]
     password: Optional[str]
 
@@ -55,22 +56,27 @@ class MongoDBConfig(BaseSettings):
         return f"mongodb://{auth}{self.host}:{self.port}/{self.db_name}"
 
 
-class StockConstsConfig:
+class FMPConsts:
     """
-    Stock API constants configuration class.
+    FMP constants configuration class.
 
     Attributes
     ----------
-    default_stock_data_interval : Interval
-        The default interval for stock data.
-    default_stock_data_period : Period
-        The default period for stock data.
+    default_yahoo_interval : Interval
+        The default interval for yahoo API.
+    default_yahoo_period : Period
+        The default period for yahoo API.
+    yahoo_defaults : dict
+        The default parameters for yahoo API.
     default_forex_pairs : list[str]
         The list of default forex pairs.
     """
 
-    default_stock_data_interval: Interval = Interval.FIVE_MINUTES
-    default_stock_data_period: Period = Period.ONE_MONTH
+    default_yahoo_interval: Interval = Interval.FIVE_MINUTES
+    default_yahoo_period: Period = Period.ONE_MONTH
+    yahoo_defaults: dict = {
+        "period": Period.MAX,
+    }
     default_forex_pairs: list[str] = []
 
     def read_default_forex_pairs(self, file_path: str) -> None:
@@ -86,20 +92,20 @@ class StockConstsConfig:
             self.default_forex_pairs = file.read().splitlines()
 
 
-class StockConfig(BaseSettings):
+class FMPConfig(BaseSettings):
     """
-    Stock API configuration class.
+    FMP setup/configuration class.
 
     Attributes
     ----------
-    events_url : str
-        The URL for stock events scrapper.
-    consts : StockConstsConfig
-        The constants configuration for stock API.
+    events_source_url : str
+        Source URL for economic events.
+    consts : FMPConsts
+        The constants configuration.
     """
 
-    events_url: str
-    consts: StockConstsConfig = StockConstsConfig()
+    events_source_url: HttpUrl
+    consts: FMPConsts = FMPConsts()
 
 
 class PathConfig:
@@ -122,8 +128,8 @@ class PathConfig:
 
     root_directory: str = os.getcwd()
     assets_directory: str = os.path.join(root_directory, "assets")
-    logging_config: str = os.path.join(assets_directory, "logging.ini")
-    proxy_list: str = os.path.join(assets_directory, "proxy.txt")
+    logging_config: str = os.path.join(root_directory, "logging.ini")
+    proxy_list: str = os.path.join(assets_directory, "proxy_list.txt")
     forex_pairs: str = os.path.join(assets_directory, "forex_pairs.txt")
 
 
@@ -251,20 +257,20 @@ class Config(BaseSettings):
     Attributes
     ----------
     mongodb : MongoDBConfig
-        The MongoDB configuration.
+        MongoDB configuration.
     project_path : PathConfig
-        The paths configuration.
-    stock : StockConfig
-        The stock API configuration.
+        Project paths configuration.
+    fmp : FMPConfig
+        Forex defaults/setup configuration.
     proxy : ProxyConfig
-        The proxy configuration.
+        Proxy configuration - dynamic/static.
     model_config : SettingsConfigDict
-        The settings configuration dictionary.
+        Pydantic model configuration.
     """
 
     mongodb: MongoDBConfig
     project_path: PathConfig = PathConfig()
-    stock: StockConfig
+    fmp: FMPConfig
     proxy: ProxyConfig
 
     model_config = SettingsConfigDict(
@@ -290,7 +296,7 @@ class Config(BaseSettings):
         """
         Runs after the model initialization.
         """
-        self.stock.consts.read_default_forex_pairs(self.project_path.forex_pairs)
+        self.fmp.consts.read_default_forex_pairs(self.project_path.forex_pairs)
         self.proxy.read_proxies(self.project_path.proxy_list)
 
 

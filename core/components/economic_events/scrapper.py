@@ -3,10 +3,10 @@ import random
 from collections import Counter
 from datetime import datetime, time
 
+from core.components.economic_events import errors
+from core.components.economic_events.models import Country, EventList
 from core.config import cfg
-from core.forex.economic_events import errors
-from core.forex.economic_events.models import Country, EventList
-from core.scrapper.engine import BaseScrapper
+from core.scrapper.base import BaseScrapper
 from core.scrapper.utils import wait_random
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.by import By
@@ -19,7 +19,7 @@ subjects_names = Country.get_subject_names()
 
 
 class EconomicEventsScrapperV1(BaseScrapper):
-    __url__ = cfg.stock.events_url
+    source_url: str = str(cfg.fmp.events_source_url)
 
     def __init__(self, recent_only: bool = False, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -62,6 +62,23 @@ class EconomicEventsScrapperV1(BaseScrapper):
 
         self._validate_current_filters()
 
+    def _define_sentiment(self, cell: WebElement) -> int:
+        """
+        Define the sentiment of the event.
+
+        Parameters
+        ----------
+        cell : WebElement
+            Cell element.
+
+        Returns
+        -------
+        int
+            Sentiment value.
+
+        """
+        return 1 if "positive" in cell.get_attribute("class") else 0
+
     def get_data(self) -> list[dict]:
         """
         Get the data from the webpage.
@@ -97,6 +114,9 @@ class EconomicEventsScrapperV1(BaseScrapper):
                 except ValueError:  # Somehow there's a country that does not interest us
                     continue
 
+                sentiment_cell_info = data_cells[6].get_attribute("class")
+                sentiment = 1 if "positive" in sentiment_cell_info else 0
+
                 data = {
                     "timestamp": datetime.combine(date_cursor, cell_time, cfg.timezone),
                     "subject": country.subject,
@@ -105,6 +125,7 @@ class EconomicEventsScrapperV1(BaseScrapper):
                     "previous": data_cells[6].text,
                     "consensus": data_cells[7].text,
                     "forecast": data_cells[8].text,
+                    "sentiment": sentiment,
                 }
                 events.append(data)
 
@@ -175,7 +196,7 @@ class EconomicEventsScrapperV1(BaseScrapper):
             By.XPATH,
             '//button[@type="button" and @class="btn btn-outline-secondary btn-calendar" and @onclick="toggleMainCountrySelection();"]',
         ).click()
-        self._driver.implicitly_wait(0.5)  # wait for the countries to load
+        self._driver.implicitly_wait(0.2)  # wait for the countries to load
         checked_elements = self._driver.find_element(By.ID, "te-c-all").find_elements(
             By.XPATH, "//li[input[@checked='']]"
         )
@@ -239,7 +260,7 @@ class EconomicEventsScrapperV1(BaseScrapper):
         label = "Recent" if self._fresh_filters else "Custom"
         self._date_from, self._date_to = from_date, to_date
         self._driver.find_element(By.XPATH, f"//span[contains(text(), '{label}')]").click()
-        self._driver.implicitly_wait(0.5)  # wait for the form to load
+        self._driver.implicitly_wait(0.2)  # wait for the form to load
         self._driver.find_element(By.XPATH, "//i[@class='bi bi-pencil']/parent::*").click()
 
         start_date_input = self._driver.find_element(By.XPATH, "//input[@id='startDate']")
@@ -276,8 +297,6 @@ class EconomicEventsScrapperV1(BaseScrapper):
         random.shuffle(subjects_names)
         for name in subjects_names:
             if element := countries_element.find_element(By.XPATH, f"//a[@noref='' and text()='{name}']"):
-                self._driver.implicitly_wait(0.4)
-
                 if not self._gui:
                     ActionChains(self._driver).move_to_element(element).perform()
 

@@ -7,8 +7,8 @@ import logging
 from abc import ABC
 from typing import Optional
 
+from core.components.forex_data.models import ForexPair, ForexTicker
 from core.config import cfg
-from core.forex.stock_data.models import ForexPair, ForexTicker
 from core.repository.errors import CollectionNameNotDefinedException
 from core.repository.models import MongoDBIndex
 from core.repository.utils import log_repo_action
@@ -224,9 +224,9 @@ class MongoDBRepository(ABC):
         return await self._collection.delete_many(query, *args, **kwargs)
 
 
-class ForexStockDataRepository(MongoDBRepository):
+class ForexDataRepository(MongoDBRepository):
     """
-    MongoDB repository class for stock data.
+    MongoDB repository class for fmp data.
 
     Attributes
     ----------
