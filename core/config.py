@@ -8,52 +8,12 @@ It includes configurations for MongoDB, APIs, paths, proxies etc.
 import logging.config
 import os
 import random
-from datetime import UTC
 from typing import Optional
 
+from fmp.config import Config as CoreConfig
+from fmp.errors import NoProxyLoadedException
 from pydantic import HttpUrl
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
-from core.errors import NoProxyLoadedException
-from core.models import Interval, Period
-
-
-class MongoDBConfig(BaseSettings):
-    """
-    MongoDB configuration class.
-
-    Attributes
-    ----------
-    host : str
-        The hostname of the MongoDB server.
-    port : int
-        The port number on which the MongoDB server is listening.
-    db_name : str
-        The name of the MongoDB database.
-    user : Optional[str]
-        The username for MongoDB authentication.
-    password : Optional[str]
-        The password for MongoDB authentication.
-    """
-
-    host: str = "localhost"
-    port: int = 27017
-    db_name: str
-    user: Optional[str]
-    password: Optional[str]
-
-    @property
-    def url(self) -> str:
-        """
-        Returns the MongoDB connection URL.
-
-        Returns
-        -------
-        str
-            The MongoDB connection URL.
-        """
-        auth = f"{self.user}:{self.password}@" if len(self.user) > 0 else ""
-        return f"mongodb://{auth}{self.host}:{self.port}/{self.db_name}"
 
 
 class FMPConsts:
@@ -62,21 +22,10 @@ class FMPConsts:
 
     Attributes
     ----------
-    default_yahoo_interval : Interval
-        The default interval for yahoo API.
-    default_yahoo_period : Period
-        The default period for yahoo API.
-    yahoo_defaults : dict
-        The default parameters for yahoo API.
     default_forex_pairs : list[str]
         The list of default forex pairs.
     """
 
-    default_yahoo_interval: Interval = Interval.FIVE_MINUTES
-    default_yahoo_period: Period = Period.ONE_MONTH
-    yahoo_defaults: dict = {
-        "period": Period.MAX,
-    }
     default_forex_pairs: list[str] = []
 
     def read_default_forex_pairs(self, file_path: str) -> None:
@@ -98,13 +47,14 @@ class FMPConfig(BaseSettings):
 
     Attributes
     ----------
-    events_source_url : str
+    events_source_url : HttpUrl
         Source URL for economic events.
     consts : FMPConsts
         The constants configuration.
     """
 
     events_source_url: HttpUrl
+    forex_csv_source_url: HttpUrl
     consts: FMPConsts = FMPConsts()
 
 
@@ -124,10 +74,13 @@ class PathConfig:
         The path to the proxy list file.
     forex_pairs : str
         The path to the forex pairs file.
+    forex_csv_directory : str
+        The directory for forex CSV files.
     """
 
     root_directory: str = os.getcwd()
     assets_directory: str = os.path.join(root_directory, "assets")
+    forex_csv_directory: str = os.path.join(assets_directory, "forex_csv")
     logging_config: str = os.path.join(root_directory, "logging.ini")
     proxy_list: str = os.path.join(assets_directory, "proxy_list.txt")
     forex_pairs: str = os.path.join(assets_directory, "forex_pairs.txt")
@@ -155,11 +108,9 @@ class ProxyConfig(BaseSettings):
         Whether to use SSL for the proxy connection.
     """
 
-    # static - provided directly from file.
     ip_list: list[str] = ()
     current: str = ""
 
-    # dynamic - provided from proxy rotation service.
     username: Optional[str]
     password: Optional[str]
     host: Optional[str]
@@ -200,7 +151,7 @@ class ProxyConfig(BaseSettings):
             If the proxy list is empty.
         """
         if not self.available:
-            return
+            return None
 
         if not self.ip_list:
             raise NoProxyLoadedException("Proxy list is empty.")
@@ -238,7 +189,7 @@ class ProxyConfig(BaseSettings):
         return bool(self.ip_list)
 
     @property
-    def seleniumwire_proxy(self) -> dict:
+    def seleniumwire_proxy(self) -> dict:  # noqa
         """
         Returns the proxy configuration for SeleniumWire.
 
@@ -250,14 +201,12 @@ class ProxyConfig(BaseSettings):
         return {"http": self.url, "https": self.url}
 
 
-class Config(BaseSettings):
+class Config(CoreConfig):
     """
     Application configuration class.
 
     Attributes
     ----------
-    mongodb : MongoDBConfig
-        MongoDB configuration.
     project_path : PathConfig
         Project paths configuration.
     fmp : FMPConfig
@@ -268,7 +217,6 @@ class Config(BaseSettings):
         Pydantic model configuration.
     """
 
-    mongodb: MongoDBConfig
     project_path: PathConfig = PathConfig()
     fmp: FMPConfig
     proxy: ProxyConfig
@@ -280,18 +228,6 @@ class Config(BaseSettings):
         extra="allow",
     )
 
-    @property
-    def timezone(self):
-        """
-        Returns the timezone.
-
-        Returns
-        -------
-        timezone
-            Timezone.
-        """
-        return UTC
-
     def model_post_init(self, *args, **kwargs):
         """
         Runs after the model initialization.
@@ -300,5 +236,5 @@ class Config(BaseSettings):
         self.proxy.read_proxies(self.project_path.proxy_list)
 
 
-cfg = Config()
+cfg = Config()  # noqa
 logging.config.fileConfig(cfg.project_path.logging_config)

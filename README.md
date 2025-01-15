@@ -26,7 +26,9 @@ The project provides a CLI for downloading and storing data. The CLI is implemen
     - update-historical-economic-events - Update historical economic events (5 years back).
     - update-latest-forex-data - Update the latest forex data.
     - update-historical-forex-data - Update historical forex data (5 years back).
-    - update-detailed-forex-data - Update detailed forex data (period of 60 days for 5min intervals or 2 years for 1h intervals).
+    - download-forex-csv - Download .csv files with detailed forex data.
+    - update-forex-data-from-csv - Update forex data from .csv files.
+
 
 ## Project Structure
 

@@ -2,41 +2,30 @@ import logging
 import random
 import time
 from datetime import datetime
-from typing import Type
 
+from core.components.crawler import BaseCrawler
 from core.components.economic_events.models import EventList
-from core.components.economic_events.scrapper import DEFAULT_SCRAPPER_CLASS
 
 logger = logging.getLogger("economic_events_logger")
 
 
-class EconomicEventsCrawler:
-    def __init__(
-        self,
-        scrapper_class: Type[DEFAULT_SCRAPPER_CLASS],
-        date_ranges: list[tuple[datetime.date, datetime.date]] = None,
-        gui: bool = False,
-        max_retries: int = 5,
-    ):
-        self._scrapper_class: Type[DEFAULT_SCRAPPER_CLASS] = scrapper_class
+class EconomicEventsCrawler(BaseCrawler):
+    def __init__(self, date_ranges: list[tuple[datetime.date, datetime.date]] = None, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
         if date_ranges:
             self._date_ranges: list[tuple[datetime.date, datetime.date]] = date_ranges
             self._original_dates_count = len(date_ranges)
 
-        self._gui = gui
-        self._max_retries_on_error = max_retries
-        self._attempt = 0
-
-    def crawl(self) -> list[EventList]:
-        call_number = random.randint(2, 5)
+    def crawl(self, *args, **kwargs) -> list[EventList]:
+        dates_q = random.randint(2, 5)
         self._attempt = 0
 
         if len(self._date_ranges) <= 5:
             dates_to_crawl = self._date_ranges
             self._remove_dates(self._date_ranges)
         else:
-            dates_to_crawl = self._cut_original_date_ranges(call_number)
+            dates_to_crawl = self._cut_original_date_ranges(dates_q)
 
         return self._safe_crawl(dates_to_crawl)
 

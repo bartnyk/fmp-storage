@@ -1,28 +1,34 @@
 import logging
 from abc import abstractmethod
-from datetime import UTC, datetime, timedelta
-from functools import cached_property
-from typing import Optional, Union
+from datetime import datetime
+from pathlib import Path
+from typing import Optional
 
+import pandas as pd
 import yfinance as yf
-from core.components.client import FMPClient
-from core.components.forex_data import models as m
-from core.config import cfg
-from core.errors import NoDataException
-from core.models import Interval, Period
+from fmp.repository.models import ForexPair, ForexTickerList
+from fmp.repository.utils import handle_insert_error
 from pandas import DataFrame
 from pymongo.errors import BulkWriteError
 
-__all__ = ["DefaultForexDataClient"]
+from core.components.client import FMPClient
+from core.components.errors import ClientUpdateTypeNotDefinedException, YahooTickerObjectNotDefinedException
+from core.components.forex_data.crawler import ForexDataCSVCrawler
+from core.components.forex_data.scrapper import ForexCSVDataScrapper
+from core.config import cfg
+from core.consts import ForexUpdateType, Interval, Period
 
-from core.repository.utils import handle_insert_error
+__all__ = ["DefaultForexDataClient"]
 
 logger = logging.getLogger("forex_data_logger")
 
+COLUMNS_HISTORICAL = ["Ticker", "Date", "Open", "High", "Low", "Close"]
+COLUMNS_LATEST = ["Ticker", "Datetime", "Open", "High", "Low", "Close"]
+
 
 class ForexDataClient(FMPClient):
-    @cached_property
-    async def available_tickers(self) -> list[m.ForexPair]:
+    @property
+    def tickers(self) -> list[ForexPair]:
         """
         Cached property of all available Forex tickers.
 
@@ -32,28 +38,33 @@ class ForexDataClient(FMPClient):
             List of ForexPair objects.
 
         """
-        return m.ForexPair.parse_list(await self._repository.get_available_tickers())
-        # return [m.ForexPair.from_raw(raw_str) for raw_str in await self._repository.get_available_tickers()]
+        return ForexPair.parse_list(cfg.fmp.consts.default_forex_pairs)
 
-    async def _update_bulk(self, tickers_list: m.ForexTickerList) -> None:  # TODO: insert if historical,
-        # update if latest
+    async def _save(self, forex_tickers_list: ForexTickerList) -> None:
         """
         Update the database with a list of ForexTicker objects.
 
         Parameters
         ----------
-        tickers_list : ForexTickerList
+        forex_tickers_list : ForexTickerList
             List of ForexTicker objects.
 
         """
         await self._repository.ensure_indexes()
 
+        if len(forex_tickers_list) > 10000:
+            for chunk in [forex_tickers_list[i : i + 10000] for i in range(0, len(forex_tickers_list), 10000)]:
+                await self._save_chunk(ForexTickerList.model_validate(chunk))
+        else:
+            await self._save_chunk(forex_tickers_list)
+
+    async def _save_chunk(self, documents: ForexTickerList) -> None:
         try:
-            await self._repository.insert_many(tickers_list, ordered=False)
-        except BulkWriteError as e:  # skip duplicates
+            await self._repository.insert_many(documents.model_dump(), ordered=False)
+        except BulkWriteError as e:
             handle_insert_error(e)
 
-    def _parse(self, data: DataFrame, *args, **kwargs) -> m.ForexTickerList:
+    def _parse(self, data: DataFrame, *args, **kwargs) -> ForexTickerList:
         """
         Parse the downloaded data into a list of ForexTicker objects.
 
@@ -68,81 +79,96 @@ class ForexDataClient(FMPClient):
             List of ForexTicker objects.
 
         """
-        return m.ForexTickerList.model_validate(data.to_dict(orient="records"))
+        return ForexTickerList.model_validate(data.to_dict(orient="records"))
 
     @abstractmethod
-    def update_historical_data(self, ticker: m.ForexPair) -> None:
+    def _download(self, *args, **kwargs):
         pass
 
     @abstractmethod
-    def update_detailed_data(self, ticker: m.ForexPair) -> None:
+    def _update(self, *args, **kwargs):
         pass
 
     @abstractmethod
-    def update_latest_data(self, ticker: Union[m.ForexPair, str]) -> None:
+    def update_historical(self, *args, **kwargs) -> None:
+        pass
+
+    @abstractmethod
+    def update_latest(self, *args, **kwargs) -> None:
         pass
 
 
 class YahooFinanceDataClient(ForexDataClient):
-    def _download(
-        self,
-        tickers: list[m.ForexPair] | m.ForexPair,
-        period: Period = cfg.fmp.consts.default_yahoo_period,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
-        interval: Interval = cfg.fmp.consts.default_yahoo_interval,
-    ) -> DataFrame:
-        """
-        Download historical data from Yahoo Finance.
+    def __init__(self, *args, **kwargs):
+        self._yf: Optional[yf.Ticker | yf.Tickers] = None
+        self._update_state: Optional[ForexUpdateType] = None
+        super().__init__(*args, **kwargs)
 
-        Parameters
-        ----------
-        tickers : list[ForexPair] | ForexPair
-            ForexPair object.
-        period : Period
-            Period object.
-        start_date : Optional[datetime]
-            Start date.
-        end_date : Optional[datetime]
-            End date.
-        interval : Interval
-            Interval object.
+    def for_single_ticker(self, ticker: ForexPair) -> None:
+        self._yf = yf.Ticker(ticker.yf)
 
-        Returns
-        -------
-        DataFrame
-            Downloaded data from Yahoo Finance as a pandas DataFrame.
+    def for_multiple_tickers(self, tickers: list[ForexPair]) -> None:
+        self._yf = yf.Tickers([ticker.yf for ticker in tickers])
 
-        """
-        params = {
-            "tickers": [ticker.yf for ticker in tickers] if isinstance(tickers, list) else tickers.yf,
-            "interval": interval.value,
-            "period": period.value,
-            "start": start_date,
-            "end": end_date,
-            "multi_level_index": False,
-        }
+    async def update_historical(self):
+        self._update_state = ForexUpdateType.HISTORICAL
+        await self._update(start=datetime(2018, 1, 1).strftime("%Y-%m-%d"))
 
-        if start_date:
-            params.pop("period")
+    async def update_latest(self):
+        self._update_state = ForexUpdateType.LATEST
+        await self._update(interval=Interval.FIVE_MINUTES.value, period=Period.MAX.value)
 
-        data = yf.download(**params)
+    @property
+    def columns(self):
+        if not self._update_state:
+            raise ClientUpdateTypeNotDefinedException
 
-        if data.empty:
-            raise NoDataException(f"Yahoo Finance returned empty data for: {tickers}")
+        if self._update_state == ForexUpdateType.HISTORICAL:
+            return COLUMNS_HISTORICAL
+        elif self._update_state == ForexUpdateType.LATEST:
+            return COLUMNS_LATEST
 
-        return data
+    @property
+    def index_column(self):
+        if not self._update_state:
+            raise ClientUpdateTypeNotDefinedException
 
-    def _parse(self, ticker: m.ForexPair, data: DataFrame) -> m.ForexTickerList:
+        if self._update_state == ForexUpdateType.HISTORICAL:
+            return "Date"
+        elif self._update_state == ForexUpdateType.LATEST:
+            return "Datetime"
+
+    async def _update(self, *args, **kwargs) -> None:
+        if not self._yf:
+            raise YahooTickerObjectNotDefinedException
+
+        yahoo_df: DataFrame = self._download(**kwargs)
+
+        if yahoo_df.empty:
+            logger.error("Failed to download data. Aborting.")
+            return
+        else:
+            logger.info(f"Downloaded {len(yahoo_df)} rows of data.")
+
+        forex_data: ForexTickerList = self._parse(yahoo_df)
+        logger.info(f"Parsed {len(forex_data)} tickers out of downloaded data.")
+
+        await self._save(forex_data)
+        logger.info("Saved new data to the database.")
+
+    def _download(self, *args, **kwargs):
+        return self._yf.history(*args, **kwargs)
+
+    def _parse(self, data: DataFrame, *args, **kwargs) -> ForexTickerList:  # noqa
         """
         Parse the downloaded data into a list of ForexTicker objects.
 
         Parameters
         ----------
-        ticker : ForexPair
-            Forex pair object.
         data : DataFrame
             Downloaded data from Yahoo Finance.
+        columns : list[str]
+            List of columns to parse.
 
         Returns
         -------
@@ -150,74 +176,75 @@ class YahooFinanceDataClient(ForexDataClient):
             List of ForexTicker objects.
 
         """
-        data = data.reset_index()
-        data["ticker"] = ticker
+        data.index.name = self.index_column
+        data = data.stack(level=1, future_stack=True).reset_index()
+        data = data.dropna(subset=["Close", "Open", "High", "Low"])
+        data = data[self.columns]
+        data["Ticker"] = data["Ticker"].str.replace("=X", "").apply(ForexPair.from_raw)
+
         return super()._parse(data)
 
-    async def update_historical_data(self, ticker: m.ForexPair) -> None:
-        """
-        Update historical data for a ticker.
-        Download historical data from Yahoo Finance with interval of 1 day for the last 5 years.
 
-        Parameters
-        ----------
-        ticker : Union[ForexPair, str]
-            ForexPair object or string representation of the ForexPair.
+class ForexDataCSVClient(ForexDataClient):
+    def _download(self, *args, **kwargs):
+        pass
 
-        """
-        options = {"period": Period.FIVE_YEARS, "interval": Interval.ONE_DAY}
-        data = self._download(ticker, **options)
-        breakpoint()
-        tickers = self._parse(ticker, data)
-        await self._update_bulk(tickers)
+    def _update(self, *args, **kwargs):
+        pass
 
-    async def update_detailed_data(self, ticker: m.ForexPair) -> None:
-        """
-        Update detailed data for a ticker.
-        Download detailed data from Yahoo Finance with interval of 5 minute for the last 60 days.
+    def update_historical(self, *args, **kwargs) -> None:
+        pass
 
-        Parameters
-        ----------
-        ticker : ForexPair
-            ForexPair object
+    def update_latest(self, *args, **kwargs) -> None:
+        pass
 
-        """
-        options = {"interval": Interval.SIXTY_MINUTES, "period": Period.MAX}
-        data = self._download(ticker, **options)
-        tickers = self._parse(ticker, data)
-        await self._update_bulk(tickers)
+    async def update_all(self, *args, **kwargs) -> None:
+        for file_name in Path(cfg.project_path.forex_csv_directory).iterdir():
+            ticker_df = None
+            if file_name.is_file() and file_name.suffix == ".csv":
+                ticker = file_name.name.split("_")[0]
+                data = pd.read_csv(file_name, names=["Datetime", "Open", "High", "Low", "Close", "Volume"])
+                data["Datetime"] = pd.to_datetime(data["Datetime"], utc=True)
+                data["Ticker"] = ForexPair.from_raw(ticker)
+                logger.info(f"Loaded {len(data)} rows from {file_name}.")
 
-    async def update_latest_data(self, ticker: Union[m.ForexPair, str]) -> None:
-        """
-        Get and update the latest data for a ticker.
-        Based on the latest record in the database, download the latest data from Yahoo Finance
-        with interval of 5 minutes. Save the data to the database.
+                forex_data = self._parse(data)
+                logger.info(f"Parsed {len(forex_data)} rows for {ticker}.")
 
-        Parameters
-        ----------
-        ticker : Union[ForexPair, str]
-            Forex pair object or string representation of the Forex pair.
+                await self._save(forex_data)
+                logger.info("Saved new data to the database.")
 
-        """
-        ticker = m.ForexPair.from_raw(ticker) if isinstance(ticker, str) else ticker
+    @property
+    def tickers(self) -> list[str]:
+        return [
+            "EURUSD",
+            "GBPUSD",
+            "USDCAD",
+            "USDCHF",
+            "USDJPY",
+            "AUDCAD",
+            "AUDCHF",
+            "AUDJPY",
+            "AUDUSD",
+            "CADCHF",
+            "CADJPY",
+            "CHFJPY",
+            "EURAUD",
+            "EURCAD",
+            "EURCHF",
+            "EURGBP",
+            "EURJPY",
+            "GBPAUD",
+            "GBPCAD",
+            "GBPCHF",
+            "GBPJPY",
+        ]
 
-        options = {"interval": Interval.FIVE_MINUTES}
-        if latest_record := await self._repository.get_latest_for_ticker(ticker):
-            latest_record = m.ForexTicker.model_validate(latest_record)
-
-            if latest_record.timestamp < datetime.now(UTC) - timedelta(days=60):
-                return await self.update_historical_data(
-                    ticker
-                )  # if the latest record is older than 30 days, update historical data for the ticker
-            elif datetime.now(UTC) - latest_record.timestamp < timedelta(minutes=5):
-                logger.info(f"No need to update the data for {ticker} - last update: " f"{latest_record.timestamp}")
-                return
-
-        options["start_date"] = latest_record.timestamp
-        data = self._download(ticker, **options)
-        tickers = self._parse(ticker, data)
-        await self._update_bulk(tickers)
-        logger.info(f"Inserted {len(tickers)} records for {ticker}.")
+    def download_files(
+        self,
+    ) -> None:
+        crawler = ForexDataCSVCrawler(tickers=self.tickers, scrapper_class=ForexCSVDataScrapper)
+        crawler.crawl()
 
 
 DefaultForexDataClient = YahooFinanceDataClient  # define default client

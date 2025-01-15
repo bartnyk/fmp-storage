@@ -1,82 +1,15 @@
 from datetime import datetime
-from enum import Enum
 
-from core.models import ListBaseModel
-from pydantic import AwareDatetime, BaseModel, Field, conint, model_validator
+from pydantic import AwareDatetime, BaseModel, Field, model_validator
 from pydantic.dataclasses import dataclass
+
+from fmp.repository.models import ListBaseModel
 
 
 @dataclass
 class CountrySubject:
     name: str
     currency: str
-
-
-class Country(Enum):
-    """Country subject enumeration class."""
-
-    USA = "United States"
-    EU = "Euro Area"
-    Japan = "Japan"
-    UK = "United Kingdom"
-    Australia = "Australia"
-    Canada = "Canada"
-    Switzerland = "Switzerland"
-    China = "China"
-    Mexico = "Mexico"
-    India = "India"
-    Russia = "Russia"
-    Turkey = "Turkey"
-    Poland = "Poland"
-
-    @property
-    def _currencies(self) -> dict:
-        return {
-            self.USA: "USD",
-            self.EU: "EUR",
-            self.Japan: "JPY",
-            self.UK: "GBP",
-            self.Australia: "AUD",
-            self.Canada: "CAD",
-            self.Switzerland: "CHF",
-            self.China: "CNY",
-            self.Mexico: "MXN",
-            self.India: "INR",
-            self.Russia: "RUB",
-            self.Turkey: "TRY",
-            self.Poland: "PLN",
-        }
-
-    @property
-    def currency(self) -> str:
-        """
-        Get the currency of the country.
-
-        Returns
-        -------
-        str
-            Currency code.
-
-        """
-        return self._currencies[self]
-
-    @property
-    def subject(self) -> CountrySubject:
-        """
-        Get the CountrySubject object.
-
-        Returns
-        -------
-        CountrySubject
-            Country subject object.
-
-        """
-        return CountrySubject(name=self.value, currency=self.currency)
-
-    @classmethod
-    def get_subject_names(cls) -> list[str]:
-        """Get the list of country subject names."""
-        return [subject.value for subject in cls]
 
 
 class Event(BaseModel, validate_assignment=True, use_enum_values=True):

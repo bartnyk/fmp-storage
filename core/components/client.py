@@ -1,6 +1,6 @@
 from typing import Type
 
-from core.repository.mongo import MongoDBRepository
+from fmp.repository.mongo import MongoDBRepository
 
 
 class FMPClient:

@@ -3,17 +3,25 @@ import random
 from collections import Counter
 from datetime import datetime, time
 
-from core.components.economic_events import errors
-from core.components.economic_events.models import Country, EventList
-from core.config import cfg
-from core.scrapper.base import BaseScrapper
-from core.scrapper.utils import wait_random
+from fmp.consts import Country
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.by import By
 from selenium.webdriver.remote.webelement import WebElement
 from selenium.webdriver.support.ui import Select
 
+from core.components.economic_events.errors import (
+    DifferentDatesException,
+    DifferentSubjectException,
+    DifferentTimezoneException,
+)
+from core.components.economic_events.models import CountrySubject, EventList
+from core.components.errors import ScrapperNotPreparedException
+from core.components.scrapper import BaseScrapper
+from core.components.utils import wait_random
+from core.config import cfg
+
 logger = logging.getLogger("scrapper_logger")
+
 
 subjects_names = Country.get_subject_names()
 
@@ -24,7 +32,6 @@ class EconomicEventsScrapperV1(BaseScrapper):
     def __init__(self, recent_only: bool = False, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._date_from = self._date_to = None
-        self._ready = False
         self._fresh_filters = True
         self._recent_only = recent_only
 
@@ -90,7 +97,7 @@ class EconomicEventsScrapperV1(BaseScrapper):
 
         """
         if not self._ready:
-            raise errors.ScrapperNotPreparedException("Scrapper is not prepared yet.")
+            raise ScrapperNotPreparedException("Scrapper is not prepared yet.")
 
         events: list[dict] = []
         date_cursor: datetime.date = self._date_from
@@ -119,7 +126,7 @@ class EconomicEventsScrapperV1(BaseScrapper):
 
                 data = {
                     "timestamp": datetime.combine(date_cursor, cell_time, cfg.timezone),
-                    "subject": country.subject,
+                    "subject": CountrySubject(name=country.value, currency=country.currency),
                     "title": data_cells[4].text,
                     "actual": data_cells[5].text,
                     "previous": data_cells[6].text,
@@ -219,17 +226,15 @@ class EconomicEventsScrapperV1(BaseScrapper):
             current_dates = self.current_date_filter
             expected_dates = (self._date_from.strftime("%Y-%m-%d"), self._date_to.strftime("%Y-%m-%d"))
             if current_dates != expected_dates:
-                raise errors.DifferentDatesException(
+                raise DifferentDatesException(
                     f"Current date filter is set to {current_dates}, but should be set to {expected_dates}."
                 )
 
         if current_timezone != "0":
-            raise errors.DifferentTimezoneException(
-                f"Timezone is set to {current_timezone}, but should be set to: 0 (UTC)."
-            )
+            raise DifferentTimezoneException(f"Timezone is set to {current_timezone}, but should be set to: 0 (UTC).")
 
         if Counter(current_subjects) != Counter(subjects_names):
-            raise errors.DifferentSubjectException(
+            raise DifferentSubjectException(
                 f"Current subjects filter is set to {current_subjects}, but should be set to {subjects_names}."
             )
 

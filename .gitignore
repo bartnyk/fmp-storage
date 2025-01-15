@@ -27,3 +27,5 @@ archive.zip
 
 .logs
 .run
+
+assets/forex_csv/*
