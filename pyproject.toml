@@ -50,6 +50,7 @@ setuptools = "^75.7.0"
 fmp-core = "^0.1.0"
 selenium = "^4.27.1"
 logging = "^0.4.9.6"
+apscheduler = "^3.11.0"
 
 [build-system]
 requires = ["poetry-core"]
